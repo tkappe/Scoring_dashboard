@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
 import pickle
 import shap
 import matplotlib.pyplot as plt
+import seaborn as sns
 from lightgbm import LGBMClassifier
 
 # Chargement du modèle et des données
@@ -16,7 +18,7 @@ st.set_page_config(layout="wide")
 # Barre latérale fixe avec logo, sélection de l'ID du client, et navigation
 
 def sidebar():
-    st.sidebar.image('img/logo.png', use_column_width=True)  # Remplacez "logo.png" par le chemin de votre logo
+    st.sidebar.image('img/logo.png', use_column_width=True) 
     st.sidebar.title("Menu de navigation")
 
     pages = {
@@ -40,36 +42,49 @@ def sidebar():
 # Fonction pour afficher la page d'accueil
 def show_home():
     st.title("Dashboard de Prédiction de Scoring")
-    st.header("Bienvenue")
-    st.write("Bienvenue sur le dashboard de prédiction de scoring.")
+    st.header("Bienvenue sur le dashboard de prédiction de scoring.")
     st.write("Ce tableau de bord vous permet de comprendre et d'analyser les risques de défaut de crédit pour les clients. Vous pouvez explorer les résultats de la prédiction, comprendre les facteurs qui influencent les décisions, et effectuer des analyses univariées et bivariées.")
-    st.write("L'objectif est de fournir une explication transparente des prédictions et d'explorer les impacts possibles de la modification de certaines caractéristiques.")
+    st.write("L'objectif est de fournir une explication transparente des prédictions et d'explorer les impacts possibles de la modification de certaines caractéristiques. Améliorer sans cesse notre service est une priorité absolue!")
 
 # Fonction pour afficher les résultats de la prédiction
 def show_results():
     client_id = st.session_state.client_id
-    
+
     st.title(f"Prédiction du risque de défaut pour le client {client_id}")
-    
-    if client_id not in data_test_sampled.index:
-        st.error(f"Client ID {client_id} non trouvé dans la base de données.")
+
+    # Appeler l'API pour obtenir la prédiction
+    api_url = "https://scoringappp7-8f781cb475fc.herokuapp.com/predict2"  # Remplacez par l'URL réelle de votre API
+    response = requests.get(api_url, params={"client_id": client_id})
+
+    # Vérifiez si la réponse est réussie (code 200)
+    if response.status_code != 200:
+        st.error(f"Erreur lors de la récupération des prédictions. Statut: {response.status_code}")
+        st.write("Détails de l'erreur :", response.text)  # Affichez le texte de la réponse pour le diagnostic
         return
-
-    client_data = data_test_sampled.loc[[client_id]]
-    probability = model.predict_proba(client_data)[:, 1][0]
-    threshold = 0.133
-    predicted_class = int(probability > threshold)
-
+    
+    try:
+        # Vérifier si la réponse est en JSON
+        if response.headers.get('Content-Type') == 'application/json':
+            prediction_result = response.json()
+        else:
+            st.error("La réponse de l'API n'est pas au format JSON.")
+            st.write("Contenu brut de la réponse :", response.text)
+            return
+    except ValueError as e:
+        st.error("Erreur lors du décodage de la réponse JSON.")
+        st.write("Contenu brut de la réponse :", response.text)
+        return
+    
+    # Si tout va bien, continuez avec l'affichage des résultats
     st.subheader(f"Résultat de la demande")
-    st.write(f"Probabilité de défaut : {probability:.2%}")
-    st.write(f"Classe : {'Défaillant' if predicted_class == 1 else 'Non défaillant'}")
-    st.write(f"Décision : {'Prêt rejeté' if predicted_class == 1 else 'Prêt accepté'}")
+    st.write(f"Probabilité de défaut : {prediction_result['probability']:.2%}")
+    st.write(f"Décision : {'Prêt rejeté' if prediction_result['score'] == 1 else 'Prêt accepté'}")
 
     st.subheader("Positionnement du client par rapport au seuil")
     fig, ax = plt.subplots(figsize=(10, 2))
-    ax.barh([0], [threshold], color='green', height=0.3)  # Zone avant le seuil (verte)
-    ax.barh([0], [1-threshold], left=threshold, color='red', height=0.3)  # Zone après le seuil (rouge)
-    ax.plot(probability, 0, marker='v', color='black', markersize=15)  # Flèche pour la probabilité du client
+    ax.barh([0], [0.133], color='green', height=0.3)  # Zone avant le seuil (verte)
+    ax.barh([0], [1-0.133], left=0.133, color='red', height=0.3)  # Zone après le seuil (rouge)
+    ax.plot(prediction_result['probability'], 0, marker='v', color='black', markersize=15)  # Flèche pour la probabilité du client
     ax.set_xlim(0, 1)
     ax.set_xticks(np.linspace(0, 1, 11))
     ax.set_xticklabels([f'{int(x*100)}%' for x in np.linspace(0, 1, 11)])
@@ -77,96 +92,89 @@ def show_results():
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
-    ax.axvline(threshold, color='blue', linestyle='--', label='Seuil')
+    ax.axvline(0.133, color='blue', linestyle='--', label='Seuil')
     ax.legend(loc='upper left')
     st.pyplot(fig)
 
-    st.subheader("Importance globale des features")
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(data_test_sampled)
-    
-    mean_shap_values = np.abs(shap_values[1]).mean(axis=0)
-    top_10_features_idx = np.argsort(mean_shap_values)[-10:]
-    top_10_feature_names = data_test_sampled.columns[top_10_features_idx]
-    top_10_shap_values = shap_values[1][:, top_10_features_idx]
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    shap.summary_plot(top_10_shap_values, features=data_test_sampled[top_10_feature_names], plot_type="bar", show=False)
-    st.pyplot(fig)
+    st.subheader("Importance Globale des Features")
+
+    feature_importance = model.feature_importances_
+    sorted_idx = np.argsort(feature_importance)[-10:]  # Les 10 plus importantes
+    sorted_importances = feature_importance[sorted_idx]
+    sorted_features = data_test_sampled.columns[sorted_idx]
+
+    plt.figure(figsize=(10, 6))
+    colors = sns.color_palette("coolwarm", len(sorted_features))
+    plt.barh(sorted_features, sorted_importances, color=colors)
+    plt.title("Feature Importance Globale")
+    st.pyplot(plt)
 
 # Fonction pour afficher la compréhension de la prédiction
 def show_comprehension():
-    client_id = st.session_state.client_id
-    
-    st.title(f"Compréhension de la prédiction du client {client_id}")
-    
+    st.title(f"Compréhension de la Prédiction pour le Client {st.session_state.client_id}")
+
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(data_test_sampled)
-    
-    st.subheader("Importance locale des features")
-    client_shap_values = shap_values[1][data_test_sampled.index.get_loc(client_id)]
-    
-    top_positive_impact = np.argsort(-client_shap_values)[:5]
-    top_negative_impact = np.argsort(client_shap_values)[:5]
-    
-    st.write("**5 features les plus impactantes positivement :**")
-    st.write(data_test_sampled.columns[top_positive_impact])
-    
-    st.write("**5 features les plus impactantes négativement :**")
-    st.write(data_test_sampled.columns[top_negative_impact])
-    
-    fig, ax = plt.subplots(figsize=(10, 6))
-    shap.force_plot(explainer.expected_value[1], client_shap_values, data_test_sampled.loc[[client_id]], matplotlib=True)
-    st.pyplot(fig)
 
+    client_index = data_test_sampled.index.get_loc(st.session_state.client_id)
+    client_shap_values = shap_values[1][client_index]
+    
+    # Séparer les valeurs positives et négatives
+    positive_idx = np.argsort(client_shap_values)[-5:]  # Top 5 positives
+    negative_idx = np.argsort(client_shap_values)[:5]   # Top 5 negatives
+
+    plt.figure(figsize=(10, 6))
+    # Dégradé pour les positives
+    colors_positive = sns.color_palette("Blues", len(positive_idx))
+    plt.barh(data_test_sampled.columns[positive_idx], client_shap_values[positive_idx], color=colors_positive)
+    
+    # Dégradé pour les négatives
+    colors_negative = sns.color_palette("Reds", len(negative_idx))
+    plt.barh(data_test_sampled.columns[negative_idx], client_shap_values[negative_idx], color=colors_negative)
+    
+    plt.title("Feature Importance Locale du Client")
+    plt.xlabel("SHAP Value")
+    st.pyplot(plt)
+    
 # Fonction pour afficher les analyses univariées
 def show_univariate_analysis():
-    client_id = st.session_state.client_id
-    
-    st.title(f"Analyses univariées et positionnement du client {client_id}")
-    
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(data_test_sampled)
-    
-    client_shap_values = shap_values[1][data_test_sampled.index.get_loc(client_id)]
-    abs_shap_values = np.abs(client_shap_values)
-    top_6_features_idx = np.argsort(abs_shap_values)[-6:]
-    top_6_feature_names = data_test_sampled.columns[top_6_features_idx]
-    
-    for feature in top_6_feature_names:
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.hist(data_test_sampled[feature], bins=30, alpha=0.5, color='gray')
-        ax.axvline(data_test_sampled.loc[client_id, feature], color='red', linewidth=2, label=f'Client {client_id}')
-        ax.set_title(f'{feature}')
-        ax.legend()
-        st.pyplot(fig)
+    st.title(f"Analyses Univariées et Positionnement du Client {st.session_state.client_id}")
 
+    selected_feature = st.selectbox("Sélectionnez une feature", data_test_sampled.columns)
+
+    X = data_test_sampled[selected_feature]
+    Y = model.predict(data_test_sampled)
+
+    plt.figure(figsize=(10, 6))
+    sns.kdeplot(X[Y == 0], fill=True, cmap="Greens", levels=20)
+    sns.kdeplot(X[Y == 1], fill=True, cmap="Reds", levels=20)
+    plt.axvline(data_test_sampled.loc[st.session_state.client_id, selected_feature], 
+                color='blue', linestyle='--', label='Client position')
+    plt.title(f"Distribution de {selected_feature}")
+    plt.legend()
+    st.pyplot(plt)
+    
 # Fonction pour afficher les analyses bivariées
 def show_bivariate_analysis():
-    client_id = st.session_state.client_id
-    
-    st.title(f"Analyses bivariées et positionnement du client {client_id}")
-    
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(data_test_sampled)
-    
-    client_shap_values = shap_values[1][data_test_sampled.index.get_loc(client_id)]
-    abs_shap_values = np.abs(client_shap_values)
-    top_10_features_idx = np.argsort(abs_shap_values)[-10:]
-    top_10_feature_names = data_test_sampled.columns[top_10_features_idx]
-    
-    feature1 = st.selectbox("Sélectionnez la première feature", top_10_feature_names, key="feature1")
-    feature2 = st.selectbox("Sélectionnez la seconde feature", top_10_feature_names, key="feature2")
+    st.title(f"Analyses Bivariées et Positionnement du Client {st.session_state.client_id}")
 
-    if feature1 and feature2:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.scatter(data_test_sampled[feature1], data_test_sampled[feature2], alpha=0.5)
-        ax.scatter(data_test_sampled.loc[[client_id]][feature1], data_test_sampled.loc[[client_id]][feature2], color='red', label="Client")
-        ax.set_xlabel(feature1)
-        ax.set_ylabel(feature2)
-        ax.legend()
-        st.pyplot(fig)
+    feature_x = st.selectbox("Sélectionnez la première feature", data_test_sampled.columns)
+    feature_y = st.selectbox("Sélectionnez la deuxième feature", data_test_sampled.columns)
+    
+    X = data_test_sampled[feature_x]
+    Y = data_test_sampled[feature_y]
+    Z = model.predict(data_test_sampled)
 
+    plt.figure(figsize=(10, 6))
+    sns.kdeplot(x=X[Z == 0], y=Y[Z == 0], cmap="Greens", fill=True, levels=20)
+    sns.kdeplot(x=X[Z == 1], y=Y[Z == 1], cmap="Reds", fill=True, levels=20)
+    plt.scatter(data_test_sampled.loc[st.session_state.client_id, feature_x], 
+                data_test_sampled.loc[st.session_state.client_id, feature_y], 
+                color='blue', label='Client position', s=100, edgecolor='k')
+    plt.title(f"Contourf Plot de {feature_x} vs {feature_y}")
+    plt.legend()
+    st.pyplot(plt)
+    
 # Fonction pour afficher les projections
 def show_projections():
     client_id = st.session_state.client_id
@@ -222,4 +230,3 @@ if __name__ == "__main__":
     
     main()
 
-    
