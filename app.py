@@ -53,7 +53,7 @@ def show_results():
     st.title(f"Prédiction du risque de défaut pour le client {client_id}")
 
     # Appeler l'API pour obtenir la prédiction
-    api_url = "https://scoringappp7-8f781cb475fc.herokuapp.com/predict2"  # Remplacez par l'URL réelle de votre API
+    api_url = "https://scoringappp7-60437480951c.herokuapp.com/predict2"  # Remplacez par l'URL réelle de votre API
     response = requests.get(api_url, params={"client_id": client_id})
 
     # Vérifiez si la réponse est réussie (code 200)

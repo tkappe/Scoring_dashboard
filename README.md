@@ -13,5 +13,5 @@ Il contient les fonctionnalités suivantes :
 
 •	Il donne la possibilité de faire quelques simulations sur certaines caractéristiques du client afin de voir dans quelle mesure améliorer son score et in fine obtenir le crédit sollicité.
 
-Le dashboard a été déployé sur le cloud via Heroku à cette adresse : 
+
 
