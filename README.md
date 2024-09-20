@@ -13,5 +13,8 @@ Il contient les fonctionnalités suivantes :
 
 •	Il donne la possibilité de faire quelques simulations sur certaines caractéristiques du client afin de voir dans quelle mesure améliorer son score et in fine obtenir le crédit sollicité.
 
+L'API de prédiction a été déployé sur le cloud via Heroku ici : https://scoringappp7-60437480951c.herokuapp.com
 
+
+Ce dashboard d'analyse et de compréhension des prédictions est déployé sur le cloud via Heroku ici : https://scoringdashboardp8-b4a957e03b31.herokuapp.com/
 
